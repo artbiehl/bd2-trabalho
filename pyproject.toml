@@ -1,0 +1,13 @@
+[project]
+name = "trabalho-bd"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "faiss-cpu>=1.15.1",
+    "matplotlib>=3.11.2",
+    "pandas>=3.1.0",
+    "psycopg2-binary>=2.9.13",
+    "sentence-transformers>=6.2.0",
+]
