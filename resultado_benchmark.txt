@@ -1,0 +1,67 @@
+================================================================================
+TRABALHO DE BANCO DE DADOS: Índices Vetoriais e Busca Semântica para IA
+Comparativo Prático: PostgreSQL (ILIKE) vs FAISS + Sentence Transformers
+================================================================================
+
+[1/5] Carregando modelo de IA 'all-MiniLM-L6-v2' (384 dimensões)...
+      Modelo carregado em 0.79s.
+
+[2/5] Gerando base de 50000 documentos corporativos...
+
+[3/5] Configurando PostgreSQL (localhost:5433) e inserindo 50003 registros...
+      Inserção concluída em 0.16s.
+
+[4/5] Gerando embeddings da base e construindo índices vetoriais FAISS...
+      Índices FAISS (FlatL2 e HNSW) prontos em 2.24s (Dimensão=384).
+
+================================================================================
+PARTE A: EFICÁCIA DA BUSCA (PALAVRA-CHAVE EXATA vs CONTEXTO SEMÂNTICO)
+================================================================================
+
+>>> Cenário 1: Palavra-chave literal presente ('lucro')
+    Pergunta do usuário : 'cadê o balanço de lucros?'
+    Filtro SQL usado    : WHERE conteudo ILIKE '%lucro%'
+    [PostgreSQL ILIKE]  -> ENCONTROU | Top-1: relatorio financeiro de lucros, receitas e perdas contabeis do ultimo trimestre
+    [FAISS Semântico]   -> ENCONTROU (Dist L2=1.2194) | Top-1: relatorio financeiro de lucros, receitas e perdas contabeis do ultimo trimestre
+
+>>> Cenário 2: Busca por sinônimo/contexto financeiro (SEM palavra exata no filtro)
+    Pergunta do usuário : 'qual foi o balanço monetário e faturamento trimestral da empresa?'
+    Filtro SQL usado    : WHERE conteudo ILIKE '%monetario%' OR conteudo ILIKE '%faturamento%'
+    [PostgreSQL ILIKE]  -> FALHOU (0 resultados) | Top-1: Nenhum
+    [FAISS Semântico]   -> ENCONTROU (Dist L2=0.9721) | Top-1: relatorio financeiro de lucros, receitas e perdas contabeis do ultimo trimestre
+
+>>> Cenário 3: Busca conceitual técnica (RAG / IA)
+    Pergunta do usuário : 'como usar embeddings e vetores em modelos de inteligência artificial como ChatGPT?'
+    Filtro SQL usado    : WHERE conteudo ILIKE '%embeddings%' OR conteudo ILIKE '%ChatGPT%'
+    [PostgreSQL ILIKE]  -> FALHOU (0 resultados) | Top-1: Nenhum
+    [FAISS Semântico]   -> ENCONTROU (Dist L2=0.7270) | Top-1: arquitetura de busca vetorial e inteligencia artificial generativa para modelos LLM
+
+>>> Cenário 4: Busca por incidente de segurança (Zero palavras em comum)
+    Pergunta do usuário : 'alerta de virus malicioso, fraude por email e sequestro de arquivos'
+    Filtro SQL usado    : WHERE conteudo ILIKE '%virus%' OR conteudo ILIKE '%fraude%' OR conteudo ILIKE '%sequestro%'
+    [PostgreSQL ILIKE]  -> FALHOU (0 resultados) | Top-1: Nenhum
+    [FAISS Semântico]   -> ENCONTROU (Dist L2=0.6887) | Top-1: auditoria de ciberseguranca sobre ataque ransomware, phishing e criptografia de dados
+
+Resumo de Recall@3 nos cenários: PostgreSQL = 25% (1/4) | FAISS = 100% (4/4)
+
+================================================================================
+PARTE B: MEDIDAS NUMÉRICAS DE LATÊNCIA (50.003 REGISTROS, MÉDIA DE 50 EXECUÇÕES)
+================================================================================
+1. PostgreSQL (ILIKE 1 termo - Seq Scan)     : 29.126 ms (±0.555 ms)
+2. PostgreSQL (ILIKE 3 termos - Seq Scan)    : 83.682 ms (±1.361 ms)
+3. FAISS IndexFlatL2 (Busca Vetorial Exata)  : 14.303 ms (±4.394 ms) -> 2.0x mais rápido que SQL!
+4. FAISS IndexHNSW (Busca em Grafo ANN)      : 0.159 ms (±0.031 ms) -> 183.2x mais rápido que SQL!
+5. Geração do Embedding da Query (CPU)       : 17.270 ms (±5.774 ms)
+6. Pipeline RAG Completo (Embed + FAISS HNSW): 17.429 ms
+
+================================================================================
+PARTE C: ESCALABILIDADE COM O AUMENTO DO VOLUME DE DADOS (N = 5k a 50k)
+================================================================================
+   N =   5000 docs | PostgreSQL ILIKE:   3.292 ms | FAISS FlatL2:  0.276 ms | FAISS HNSW:  0.044 ms (76x speedup)
+   N =  10000 docs | PostgreSQL ILIKE:   9.457 ms | FAISS FlatL2:  2.557 ms | FAISS HNSW:  0.080 ms (118x speedup)
+   N =  25000 docs | PostgreSQL ILIKE:  23.427 ms | FAISS FlatL2:  4.972 ms | FAISS HNSW:  0.100 ms (235x speedup)
+   N =  50000 docs | PostgreSQL ILIKE:  38.180 ms | FAISS FlatL2:  5.343 ms | FAISS HNSW:  0.110 ms (346x speedup)
+
+[5/5] Gerando gráficos de alta resolução para os slides...
+      -> Gráfico salvo em: grafico_comparativo.png
+      -> Tabela CSV salva em: metricas_benchmark.csv

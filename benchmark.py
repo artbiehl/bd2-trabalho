@@ -48,11 +48,11 @@ def main():
     textos = [templates_ruido[i % len(templates_ruido)].format(i=i) for i in range(num_records)]
 
     # Documentos-alvo que queremos encontrar na busca
-    doc_alvo_financeiro = "relatorio financeiro de lucros e perdas do ultimo trimestre"
-    doc_alvo_ia = "arquitetura de recuperacao aumentada por geracao para modelos de linguagem"
-    doc_alvo_infra = "procedimento de contingencia para queda e indisponibilidade do cluster principal"
+    doc_alvo_financeiro = "relatorio financeiro de lucros, receitas e perdas contabeis do ultimo trimestre"
+    doc_alvo_ia = "arquitetura de busca vetorial e inteligencia artificial generativa para modelos LLM"
+    doc_alvo_sec = "auditoria de ciberseguranca sobre ataque ransomware, phishing e criptografia de dados"
 
-    textos.extend([doc_alvo_financeiro, doc_alvo_ia, doc_alvo_infra])
+    textos.extend([doc_alvo_financeiro, doc_alvo_ia, doc_alvo_sec])
     total_docs = len(textos)
 
     # 2. Setup do PostgreSQL (Docker)
@@ -77,22 +77,17 @@ def main():
     # 3. Setup do FAISS (Busca Vetorial)
     log("\n[4/5] Gerando embeddings da base e construindo índices vetoriais FAISS...")
     t_emb = time.perf_counter()
-    # Otimização: codifica os templates únicos ou em batch rápido
-    embeddings_unicos = model.encode(
-        templates_ruido + [doc_alvo_financeiro, doc_alvo_ia, doc_alvo_infra],
-        normalize_embeddings=True,
-    )
-    # Reconstrói matriz de embeddings com pequena perturbação realista para simular 50k vetores distintos
-    rng = np.random.default_rng(42)
-    indices_template = [i % len(templates_ruido) for i in range(num_records)]
-    matriz_base = embeddings_unicos[indices_template] + rng.normal(
-        0, 0.01, size=(num_records, embeddings_unicos.shape[1])
+    # Codifica lote de frases base reais + alvos
+    amostra_textos = textos[:200]
+    emb_amostra = model.encode(amostra_textos, normalize_embeddings=True).astype(np.float32)
+    emb_alvos = model.encode(
+        [doc_alvo_financeiro, doc_alvo_ia, doc_alvo_sec], normalize_embeddings=True
     ).astype(np.float32)
-    # Normaliza linhas da base e concatena os alvos exatos
-    matriz_base /= np.linalg.norm(matriz_base, axis=1, keepdims=True)
-    embeddings = np.vstack([matriz_base, embeddings_unicos[len(templates_ruido) :]]).astype(
-        np.float32
-    )
+
+    # Replica os embeddings reais dos documentos de ruído para compor os 50.000 vetores no índice
+    repeticoes = (num_records // len(emb_amostra)) + 1
+    matriz_base = np.tile(emb_amostra, (repeticoes, 1))[:num_records]
+    embeddings = np.vstack([matriz_base, emb_alvos]).astype(np.float32)
 
     dimensao = embeddings.shape[1]
 
@@ -102,7 +97,7 @@ def main():
 
     # Índice 2: HNSW (Hierarchical Navigable Small World - Grafo aproximado usado em produção RAG)
     indice_hnsw = faiss.IndexHNSWFlat(dimensao, 32)
-    indice_hnsw.hnsw.efSearch = 32
+    indice_hnsw.hnsw.efSearch = 64
     indice_hnsw.add(embeddings)
 
     log(f"      Índices FAISS (FlatL2 e HNSW) prontos em {(time.perf_counter() - t_emb):.2f}s (Dimensão={dimensao}).")
@@ -120,22 +115,22 @@ def main():
             "alvo_esperado": doc_alvo_financeiro,
         },
         {
-            "cenario": "Cenário 2: Busca por sinônimo/contexto (SEM palavra exata no texto)",
-            "pergunta": "qual foi o resultado contábil e faturamento recente da empresa?",
-            "sql_where": "conteudo ILIKE '%contabil%' OR conteudo ILIKE '%faturamento%' OR conteudo ILIKE '%receita%'",
+            "cenario": "Cenário 2: Busca por sinônimo/contexto financeiro (SEM palavra exata no filtro)",
+            "pergunta": "qual foi o balanço monetário e faturamento trimestral da empresa?",
+            "sql_where": "conteudo ILIKE '%monetario%' OR conteudo ILIKE '%faturamento%'",
             "alvo_esperado": doc_alvo_financeiro,
         },
         {
             "cenario": "Cenário 3: Busca conceitual técnica (RAG / IA)",
-            "pergunta": "como conectar bases de conhecimento externas em LLMs como o GPT?",
-            "sql_where": "conteudo ILIKE '%conhecimento%' OR conteudo ILIKE '%LLM%' OR conteudo ILIKE '%GPT%'",
+            "pergunta": "como usar embeddings e vetores em modelos de inteligência artificial como ChatGPT?",
+            "sql_where": "conteudo ILIKE '%embeddings%' OR conteudo ILIKE '%ChatGPT%'",
             "alvo_esperado": doc_alvo_ia,
         },
         {
-            "cenario": "Cenário 4: Busca por situação operacional (Sinônimos de falha)",
-            "pergunta": "o que fazer quando o servidor cair e ficar fora do ar?",
-            "sql_where": "conteudo ILIKE '%cair%' OR conteudo ILIKE '%fora do ar%'",
-            "alvo_esperado": doc_alvo_infra,
+            "cenario": "Cenário 4: Busca por incidente de segurança (Zero palavras em comum)",
+            "pergunta": "alerta de virus malicioso, fraude por email e sequestro de arquivos",
+            "sql_where": "conteudo ILIKE '%virus%' OR conteudo ILIKE '%fraude%' OR conteudo ILIKE '%sequestro%'",
+            "alvo_esperado": doc_alvo_sec,
         },
     ]
 
