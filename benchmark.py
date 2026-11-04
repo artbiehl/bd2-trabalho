@@ -8,12 +8,29 @@ from psycopg2.extras import execute_values
 import matplotlib.pyplot as plt
 from sentence_transformers import SentenceTransformer
 
-# Configuração de conexão (usa porta 5433 por padrão para evitar conflito com Postgres local na 5432)
+# Configuração de conexão (tenta automaticamente as portas 5433 e 5432 para funcionar em qualquer máquina)
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5433")
 DB_NAME = os.getenv("DB_NAME", "postgres")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASS = os.getenv("DB_PASS", "senha123")
+
+
+def conectar_postgres():
+    portas = [os.getenv("DB_PORT")] if os.getenv("DB_PORT") else ["5433", "5432"]
+    ultimo_erro = None
+    for porta in portas:
+        try:
+            conn = psycopg2.connect(
+                dbname=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=porta
+            )
+            return conn, porta
+        except psycopg2.OperationalError as e:
+            ultimo_erro = e
+    raise RuntimeError(
+        "Não foi possível conectar ao PostgreSQL nas portas 5433 ou 5432.\n"
+        "Certifique-se de que o container Docker está rodando com:\n"
+        "  docker run --name postgres-benchmark -e POSTGRES_PASSWORD=senha123 -p 5433:5432 -d postgres:16"
+    ) from ultimo_erro
 
 
 def main():
@@ -56,10 +73,8 @@ def main():
     total_docs = len(textos)
 
     # 2. Setup do PostgreSQL (Docker)
-    log(f"\n[3/5] Configurando PostgreSQL ({DB_HOST}:{DB_PORT}) e inserindo {total_docs} registros...")
-    conn = psycopg2.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
-    )
+    conn, porta_conectada = conectar_postgres()
+    log(f"\n[3/5] Configurando PostgreSQL ({DB_HOST}:{porta_conectada}) e inserindo {total_docs} registros...")
     cur = conn.cursor()
     cur.execute("DROP TABLE IF EXISTS documentos;")
     cur.execute("CREATE TABLE documentos (id SERIAL PRIMARY KEY, conteudo TEXT);")
